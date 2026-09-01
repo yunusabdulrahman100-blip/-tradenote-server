@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>TradeNote Dashboard</title>
+  <style>
+    body { background: #0d0d0d; color: #eee; font-family: Arial, sans-serif; padding: 30px; }
+    h1 { color: #fff; }
+    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+    th, td { padding: 10px; text-align: left; border-bottom: 1px solid #333; }
+    th { background: #1a1a1a; color: #999; text-transform: uppercase; font-size: 12px; }
+    .profit { color: #4ade80; }
+    .loss { color: #f87171; }
+  </style>
+</head>
+<body>
+  <h1>📒 TradeNote Journal</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Symbol</th><th>Type</th><th>Entry</th><th>Exit</th><th>Lots</th><th>P/L</th><th>Date</th><th>Notes</th>
+      </tr>
+    </thead>
+    <tbody id="tradesBody">
+      <tr><td colspan="8">Loading...</td></tr>
+    </tbody>
+  </table>
+
+  <script>
+    fetch("/trades")
+      .then(res => res.json())
+      .then(trades => {
+        const tbody = document.getElementById("tradesBody");
+        tbody.innerHTML = "";
+        if (trades.length === 0) {
+          tbody.innerHTML = "<tr><td colspan='8'>No trades yet.</td></tr>";
+          return;
+        }
+        trades.forEach(trade => {
+          const row = document.createElement("tr");
+          const plClass = trade.profit_loss >= 0 ? "profit" : "loss";
+          row.innerHTML = `
+            <td>${trade.symbol}</td>
+            <td>${trade.trade_type}</td>
+            <td>${trade.entry_price ?? "-"}</td>
+            <td>${trade.exit_price ?? "-"}</td>
+            <td>${trade.lot_size}</td>
+            <td class="${plClass}">${trade.profit_loss}</td>
+            <td>${new Date(trade.opened_at).toLocaleString()}</td>
+            <td>${trade.notes ?? ""}</td>
+          `;
+          tbody.appendChild(row);
+        });
+      })
+      .catch(err => {
+        document.getElementById("tradesBody").innerHTML = "<tr><td colspan='8'>Error loading trades.</td></tr>";
+      });
+  </script>
+</body>
+</html>

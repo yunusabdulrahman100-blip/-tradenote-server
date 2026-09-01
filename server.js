@@ -6,7 +6,9 @@ const app = express();
 const PORT = 5000;
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
-app.use(express.json())
+
+app.use(express.json());
+app.use(express.static("public"));
 
 app.get("/", (req, res) => {
     res.send("TradeNote API is working!");
@@ -35,6 +37,7 @@ app.get("/add-test-trade", async (req, res) => {
         res.send("Trade saved! " + JSON.stringify(data));
     }
 });
+
 app.post("/add-trade", async (req, res) => {
     const { symbol, trade_type, entry_price, exit_price, lot_size, profit_loss, notes } = req.body;
 
@@ -46,6 +49,19 @@ app.post("/add-trade", async (req, res) => {
         res.status(400).json({ error: error.message });
     } else {
         res.json({ message: "Trade received and saved!", trade: data });
+    }
+});
+
+app.get("/trades", async (req, res) => {
+    const { data, error } = await supabase
+        .from("trades")
+        .select("*")
+        .order("opened_at", { ascending: false });
+
+    if (error) {
+        res.status(400).json({ error: error.message });
+    } else {
+        res.json(data);
     }
 });
 
