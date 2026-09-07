@@ -68,3 +68,105 @@ app.get("/trades", async (req, res) => {
 app.listen(PORT, () => {
     console.log(`TradeNote server is running on port ${PORT}`);
 });
+
+const MetaApi = require('metaapi.cloud-sdk').default;
+const metaApiToken = process.env.METAAPI_TOKEN;
+
+app.post('/api/broker-sync/connect', async (req, res) => {
+  const { userId, broker, platform, login, server: brokerServer, password } = req.body;
+
+  if (!userId || !platform || !login || !brokerServer || !password) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+    const api = new MetaApi(metaApiToken);
+
+    const account = await api.metatraderAccountApi.createAccount({
+      name: `${broker || platform.toUpperCase()}-${login}`,
+      type: 'cloud',
+      login: String(login),
+      password: password,
+      server: brokerServer,
+      platform: platform,
+      magic: 0
+    });
+
+    await account.deploy();
+
+    const { error } = await supabase.from('broker_connections').insert({
+      user_id: userId,
+      metaapi_account_id: account.id,
+      broker_name: broker || platform,
+      platform,
+      login: String(login),
+      server: brokerServer,
+      status: 'connecting'
+    });
+
+    if (error) throw error;
+
+    startTradeListener(account.id, userId);
+
+    res.json({ success: true, accountId: account.id });
+  } catch (err) {
+    console.error('Broker connect error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+class TradeJournalListener {
+  constructor(userId) {
+    this.userId = userId;
+    return new Proxy(this, {
+      get(target, prop) {
+        if (prop in target) {
+          const value = target[prop];
+          return typeof value === 'function' ? value.bind(target) : value;
+        }
+        if (typeof prop === 'string' && prop.startsWith('on')) {
+          return async () => {};
+        }
+        return undefined;
+      }
+    });
+  }
+
+  async onDealAdded(instanceIndex, deal) {
+    if (deal.type !== 'DEAL_TYPE_BUY' && deal.type !== 'DEAL_TYPE_SELL') return;
+    if (!deal.entryType || deal.entryType !== 'DEAL_ENTRY_OUT') return;
+
+    const { error } = await supabase.from('trades').insert({
+      user_id: this.userId,
+      symbol: deal.symbol,
+      trade_type: deal.type === 'DEAL_TYPE_BUY' ? 'sell' : 'buy',
+      entry_price: deal.price,
+      exit_price: deal.price,
+      lot_size: deal.volume,
+      profit_loss: deal.profit,
+      opened_at: deal.time,
+      notes: 'Auto-synced via MetaApi'
+    });
+
+    if (error) console.error('Trade insert error:', error.message);
+    else console.log(`Trade journaled for user ${this.userId}: ${deal.symbol} ${deal.profit}`);
+  }
+}
+
+async function startTradeListener(accountId, userId) {
+  try {
+    const api = new MetaApi(metaApiToken);
+    const account = await api.metatraderAccountApi.getAccount(accountId);
+    await account.waitDeployed();
+
+    const connection = account.getStreamingConnection();
+    await connection.connect();
+    await connection.waitSynchronized();
+
+    connection.addSynchronizationListener(new TradeJournalListener(userId));
+
+    console.log(`Trade listener active for account ${accountId}`);
+  } catch (err) {
+    console.error('Listener error:', err.message);
+  }
+}
