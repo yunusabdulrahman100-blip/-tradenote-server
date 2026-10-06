@@ -11,9 +11,12 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.4",
+    "@supabase/supabase-js": "^2.117.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
-    "metaapi.cloud-sdk": "^29.3.3"
+    "express-rate-limit": "^8.7.1",
+    "helmet": "^8.3.0",
+    "metaapi.cloud-sdk": "^29.3.3",
+    "zod": "^4.6.5"
   }
 }

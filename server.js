@@ -3,11 +3,13 @@ const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = 5000;
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
 app.use(express.json());
+app.use('/api/v2/trades', require('./tradeIngest'));
 app.use(express.static("public"));
 
 app.get("/", (req, res) => {

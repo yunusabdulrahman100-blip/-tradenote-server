@@ -1,3 +1,6 @@
    node_modules
    .env
   connect-test.js
+  node_modules/
+.env
+.metaapi/
