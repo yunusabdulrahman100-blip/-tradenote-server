@@ -172,3 +172,85 @@ async function startTradeListener(accountId, userId) {
     console.error('Listener error:', err.message);
   }
 }
+
+// ===== TRADING DISCIPLINE RULES =====
+const todayDate = () => new Date().toISOString().slice(0, 10);
+
+// Save today's rules (can only be done once per day)
+app.post("/api/rules", async (req, res) => {
+  const { daily_profit_target, max_daily_loss, max_trades_per_day, max_risk_per_trade } = req.body;
+
+  const values = [daily_profit_target, max_daily_loss, max_trades_per_day, max_risk_per_trade];
+  if (values.some(v => v === undefined || isNaN(Number(v)) || Number(v) <= 0)) {
+    return res.status(400).json({ error: "All four rules must be numbers greater than 0." });
+  }
+
+  const { data: existing } = await supabase
+    .from("trading_rules")
+    .select("id")
+    .eq("rule_date", todayDate())
+    .maybeSingle();
+
+  if (existing) {
+    return res.status(403).json({ error: "Today's rules are already set and cannot be changed." });
+  }
+
+  const { data, error } = await supabase
+    .from("trading_rules")
+    .insert([{
+      rule_date: todayDate(),
+      daily_profit_target: Number(daily_profit_target),
+      max_daily_loss: Number(max_daily_loss),
+      max_trades_per_day: Number(max_trades_per_day),
+      max_risk_per_trade: Number(max_risk_per_trade)
+    }])
+    .select();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ success: true, rules: data[0] });
+});
+
+// Get today's rules + live status (the EA and dashboard both use this)
+app.get("/api/rules/today", async (req, res) => {
+  const { data: rules, error } = await supabase
+    .from("trading_rules")
+    .select("*")
+    .eq("rule_date", todayDate())
+    .maybeSingle();
+
+  if (error) return res.status(500).json({ error: error.message });
+  if (!rules) return res.json({ rules: null });
+
+  const { data: trades, error: tradesError } = await supabase
+    .from("trades")
+    .select("profit_loss")
+    .gte("opened_at", todayDate());
+
+  if (tradesError) return res.status(500).json({ error: tradesError.message });
+
+  const pnl = trades.reduce((sum, t) => sum + Number(t.profit_loss || 0), 0);
+  const tradeCount = trades.length;
+
+  let locked = rules.locked;
+  let lockReason = rules.lock_reason;
+
+  if (!locked) {
+    if (pnl >= Number(rules.daily_profit_target)) lockReason = "Daily profit target reached";
+    else if (pnl <= -Number(rules.max_daily_loss)) lockReason = "Max daily loss reached";
+    else if (tradeCount >= Number(rules.max_trades_per_day)) lockReason = "Max trades per day reached";
+
+    if (lockReason) {
+      locked = true;
+      await supabase
+        .from("trading_rules")
+        .update({ locked: true, lock_reason: lockReason })
+        .eq("id", rules.id);
+    }
+  }
+
+  res.json({
+    rules: { ...rules, locked, lock_reason: lockReason },
+    pnl,
+    trades_today: tradeCount
+  });
+});

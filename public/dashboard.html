@@ -57,3 +57,94 @@
   </script>
 </body>
 </html>
+<script>
+(function () {
+  const card = document.createElement("div");
+  card.style.cssText = "max-width:720px;margin:16px auto;padding:18px;border-radius:12px;background:#15181e;border:1px solid #2a2f3a;color:#e6e8ee;font-family:system-ui,sans-serif;";
+  document.body.prepend(card);
+  let showingForm = false;
+
+  const box = "padding:8px;border-radius:8px;border:1px solid #2a2f3a;background:#0e1014;color:#e6e8ee;width:100%;box-sizing:border-box;margin-top:4px;";
+
+  function field(id, label) {
+    return '<label style="font-size:14px;color:#9aa3b2">' + label +
+      '<input id="' + id + '" type="number" min="0" step="any" style="' + box + '"></label>';
+  }
+
+  function stat(label, value) {
+    return '<div style="background:#0e1014;border-radius:8px;padding:10px">' +
+      '<div style="font-size:12px;color:#9aa3b2">' + label + '</div>' +
+      '<div style="font-size:18px;font-weight:600;margin-top:2px">' + value + '</div></div>';
+  }
+
+  function renderForm() {
+    showingForm = true;
+    card.innerHTML =
+      '<h3 style="margin:0 0 4px">Trading discipline rules</h3>' +
+      '<p style="margin:0 0 12px;color:#9aa3b2;font-size:14px">Set once per day. After you save, these cannot be changed until tomorrow.</p>' +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">' +
+      field("dr-profit", "Daily profit target") +
+      field("dr-loss", "Max daily loss") +
+      field("dr-trades", "Max trades per day") +
+      field("dr-risk", "Max risk per trade") +
+      '</div>' +
+      '<button id="dr-save" style="margin-top:12px;padding:10px 16px;border:0;border-radius:8px;background:#2f81f7;color:#fff;font-weight:600;cursor:pointer">Lock in today’s rules</button>' +
+      '<div id="dr-msg" style="margin-top:8px;color:#f85149;font-size:14px"></div>';
+    document.getElementById("dr-save").onclick = save;
+  }
+
+  function renderStatus(d) {
+    showingForm = false;
+    const r = d.rules;
+    const color = r.locked ? "#f85149" : "#3fb950";
+    card.innerHTML =
+      '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">' +
+      '<h3 style="margin:0">Trading discipline</h3>' +
+      '<span style="padding:4px 12px;border-radius:999px;background:' + color + '22;color:' + color + ';font-weight:700">' +
+      (r.locked ? "LOCKED" : "ACTIVE") + '</span></div>' +
+      (r.locked ? '<p style="margin:10px 0 0;color:' + color + '">' + (r.lock_reason || "") + '. No more trades today.</p>' : '') +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px">' +
+      stat("Today’s P&amp;L", Number(d.pnl).toFixed(2) + " / " + Number(r.daily_profit_target)) +
+      stat("Trades today", d.trades_today + " / " + r.max_trades_per_day) +
+      stat("Max daily loss", Number(r.max_daily_loss)) +
+      stat("Max risk per trade", Number(r.max_risk_per_trade)) +
+      '</div>';
+  }
+
+  async function save() {
+    const msg = document.getElementById("dr-msg");
+    const body = {
+      daily_profit_target: document.getElementById("dr-profit").value,
+      max_daily_loss: document.getElementById("dr-loss").value,
+      max_trades_per_day: document.getElementById("dr-trades").value,
+      max_risk_per_trade: document.getElementById("dr-risk").value
+    };
+    if (!confirm("These limits cannot be changed until tomorrow. Save them?")) return;
+    try {
+      const res = await fetch("/api/rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      if (!res.ok) { msg.textContent = data.error || "Could not save."; return; }
+      load();
+    } catch (e) {
+      msg.textContent = "Cannot reach the server.";
+    }
+  }
+
+  async function load() {
+    try {
+      const res = await fetch("/api/rules/today");
+      const d = await res.json();
+      if (d.error) return;
+      if (!d.rules) { if (!showingForm) renderForm(); }
+      else renderStatus(d);
+    } catch (e) {}
+  }
+
+  load();
+  setInterval(load, 5000);
+})();
+</script>
