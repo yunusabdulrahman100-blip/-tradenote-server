@@ -175,10 +175,19 @@ async function startTradeListener(accountId, userId) {
 
 // ===== TRADING DISCIPLINE RULES =====
 const todayDate = () => new Date().toISOString().slice(0, 10);
+const rulesCrypto = require("crypto");
+const requireRulesKey = (req, res, next) => {
+  const expected = Buffer.from((process.env.RULES_KEY || "").trim());
+  const given = Buffer.from((req.get("x-rules-key") || "").trim());
+  if (!expected.length || given.length !== expected.length ||
+      !rulesCrypto.timingSafeEqual(given, expected)) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  next();
+};
 
 // Save today's rules (can only be done once per day)
-app.post("/api/rules", async (req, res) => {
-  const { daily_profit_target, max_daily_loss, max_trades_per_day, max_risk_per_trade } = req.body;
+app.post("/api/rules", requireRulesKey, async (req, res) => {  const { daily_profit_target, max_daily_loss, max_trades_per_day, max_risk_per_trade } = req.body;
 
   const values = [daily_profit_target, max_daily_loss, max_trades_per_day, max_risk_per_trade];
   if (values.some(v => v === undefined || isNaN(Number(v)) || Number(v) <= 0)) {
@@ -211,10 +220,9 @@ app.post("/api/rules", async (req, res) => {
 });
 
 // Get today's rules + live status (the EA and dashboard both use this)
-app.get("/api/rules/today", async (req, res) => {
+app.get("/api/rules/today", requireRulesKey, async (req, res) => {
   const { data: rules, error } = await supabase
-    .from("trading_rules")
-    .select("*")
+    .from("trading_rules")    .select("*")
     .eq("rule_date", todayDate())
     .maybeSingle();
 

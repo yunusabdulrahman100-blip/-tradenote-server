@@ -59,6 +59,30 @@
 </html>
 <script>
 (function () {
+
+   let keyAsked = false;
+  function getKey() {
+    let k = "";
+    try { k = localStorage.getItem("rulesKey") || ""; } catch (e) {}
+    if (!k && !keyAsked) {
+      keyAsked = true;
+      k = (prompt("Enter your rules key") || "").trim();
+      if (k) { try { localStorage.setItem("rulesKey", k); } catch (e) {} }
+    }
+    return k;
+  }
+  const _origFetch = window.fetch;
+  window.fetch = function (url, opts) {
+    if (typeof url === "string" && url.indexOf("/api/rules") === 0) {
+      opts = opts || {};
+      opts.headers = Object.assign({}, opts.headers, { "x-rules-key": getKey() });
+      return _origFetch.call(this, url, opts).then(function (r) {
+        if (r.status === 401) { try { localStorage.removeItem("rulesKey"); } catch (e) {} }
+        return r;
+      });
+    }
+    return _origFetch.call(this, url, opts);
+  }; 
   const card = document.createElement("div");
   card.style.cssText = "max-width:720px;margin:16px auto;padding:18px;border-radius:12px;background:#15181e;border:1px solid #2a2f3a;color:#e6e8ee;font-family:system-ui,sans-serif;";
   document.body.prepend(card);
