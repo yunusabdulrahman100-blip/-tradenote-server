@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TradeNote – Trading rules</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; padding: 24px 16px; background: #0e1014; color: #e6e8ee; font-family: system-ui, sans-serif; }
+  .card { max-width: 720px; margin: 0 auto 16px; padding: 18px; border-radius: 12px; background: #15181e; border: 1px solid #2a2f3a; }
+  h2 { margin: 0 0 6px; }
+  .muted { color: #9aa3b2; font-size: 14px; margin: 0 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  label { font-size: 14px; color: #9aa3b2; }
+  input { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px; border-radius: 8px; border: 1px solid #2a2f3a; background: #0e1014; color: #e6e8ee; }
+  .stat { background: #0e1014; border-radius: 8px; padding: 10px; }
+  .stat small { display: block; font-size: 12px; color: #9aa3b2; }
+  .stat b { font-size: 18px; }
+  .badge { padding: 4px 12px; border-radius: 999px; font-weight: 700; }
+  .ok { background: #3fb95022; color: #3fb950; }
+  .bad { background: #f8514922; color: #f85149; }
+  button { margin-top: 12px; padding: 10px 16px; border: 0; border-radius: 8px; background: #2f81f7; color: #fff; font-weight: 600; cursor: pointer; }
+  #msg { margin-top: 10px; font-size: 14px; }
+  a { color: #7db4ff; }
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h2>In force today</h2>
+  <p class="muted" id="todayNote">Loading…</p>
+  <div class="grid" id="todayGrid"></div>
+</div>
+
+<div class="card">
+  <h2>Your standing rules</h2>
+  <p class="muted">These limits repeat every day. Stricter numbers (lower) start right now. Looser numbers (higher) start tomorrow.</p>
+  <div class="grid">
+    <label>Daily profit target<input id="daily_profit_target" type="number" min="0" step="any"></label>
+    <label>Max daily loss<input id="max_daily_loss" type="number" min="0" step="any"></label>
+    <label>Max trades per day<input id="max_trades_per_day" type="number" min="1" step="1"></label>
+    <label>Max risk per trade<input id="max_risk_per_trade" type="number" min="0" step="any"></label>
+  </div>
+  <button id="save">Save my rules</button>
+  <div id="msg"></div>
+  <p class="muted" style="margin-top:14px"><a href="/dashboard.html">Back to the journal</a></p>
+</div>
+
+<script>
+(function () {
+  var FIELDS = ["daily_profit_target", "max_daily_loss", "max_trades_per_day", "max_risk_per_trade"];
+  var LABELS = {
+    daily_profit_target: "Daily profit target",
+    max_daily_loss: "Max daily loss",
+    max_trades_per_day: "Max trades per day",
+    max_risk_per_trade: "Max risk per trade"
+  };
+  var keyAsked = false;
+
+  function getKey() {
+    var k = "";
+    try { k = localStorage.getItem("rulesKey") || ""; } catch (e) {}
+    if (!k && !keyAsked) {
+      keyAsked = true;
+      k = (prompt("Enter your rules key") || "").trim();
+      if (k) { try { localStorage.setItem("rulesKey", k); } catch (e) {} }
+    }
+    return k;
+  }
+
+  function api(path, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ "Content-Type": "application/json", "x-rules-key": getKey() }, opts.headers || {});
+    return fetch(path, opts).then(function (r) {
+      if (r.status === 401) { try { localStorage.removeItem("rulesKey"); } catch (e) {} }
+      return r.json().then(function (d) { return { ok: r.ok, status: r.status, data: d }; });
+    });
+  }
+
+  function msg(text, bad) {
+    var el = document.getElementById("msg");
+    el.textContent = text;
+    el.style.color = bad ? "#f85149" : "#3fb950";
+  }
+
+  function stat(label, value) {
+    var d = document.createElement("div");
+    d.className = "stat";
+    var s = document.createElement("small");
+    s.textContent = label;
+    var b = document.createElement("b");
+    b.textContent = value;
+    d.appendChild(s);
+    d.appendChild(b);
+    return d;
+  }
+
+  function renderToday(d) {
+    var grid = document.getElementById("todayGrid");
+    var note = document.getElementById("todayNote");
+    grid.innerHTML = "";
+    if (!d || !d.rules) {
+      note.textContent = "No limits are set yet. Enter them below and save.";
+      return;
+    }
+    var r = d.rules;
+    note.textContent = r.locked ? "LOCKED: " + (r.lock_reason || "limit reached") + ". No more trades today." : "ACTIVE. Limits are being enforced.";
+    note.style.color = r.locked ? "#f85149" : "#3fb950";
+    grid.appendChild(stat("Today’s P&L", Number(d.pnl).toFixed(2) + " / " + Number(r.daily_profit_target)));
+    grid.appendChild(stat("Trades today", d.trades_today + " / " + r.max_trades_per_day));
+    grid.appendChild(stat("Max daily loss", Number(r.max_daily_loss)));
+    grid.appendChild(stat("Max risk per trade", Number(r.max_risk_per_trade)));
+  }
+
+  function load() {
+    var a = api("/api/rules/today");
+    var b = api("/api/rules/standing");
+    Promise.all([a, b]).then(function (res) {
+      var t = res[0], s = res[1];
+      if (t.status === 401 || s.status === 401) {
+        msg("The rules key was not accepted. Reload the page to enter it again.", true);
+        return;
+      }
+      renderToday(t.data);
+      var src = (s.data && s.data.standing) || (t.data && t.data.rules) || null;
+      if (src) {
+        FIELDS.forEach(function (f) { document.getElementById(f).value = Number(src[f]); });
+      }
+    }).catch(function () { msg("Cannot reach the server.", true); });
+  }
+
+  function save() {
+    var body = {};
+    FIELDS.forEach(function (f) { body[f] = document.getElementById(f).value; });
+    if (!confirm("Save these limits? Stricter numbers start now. Looser numbers start tomorrow.")) return;
+    api("/api/rules", { method: "POST", body: JSON.stringify(body) }).then(function (r) {
+      if (!r.ok) { msg(r.data.error || "Could not save.", true); return; }
+      var looser = FIELDS.filter(function (f) { return Number(r.data.standing[f]) > Number(r.data.today[f]); });
+      if (r.data.applies === "today" || !looser.length) {
+        msg("Saved. These limits are active now and repeat every day.");
+      } else {
+        msg("Saved. Your lower numbers are active now. The higher ones (" +
+            looser.map(function (f) { return LABELS[f]; }).join(", ") + ") start tomorrow.");
+      }
+      load();
+    }).catch(function () { msg("Cannot reach the server.", true); });
+  }
+
+  document.getElementById("save").onclick = save;
+  load();
+  setInterval(function () { api("/api/rules/today").then(function (t) { if (t.ok) renderToday(t.data); }); }, 10000);
+})();
+</script>
+</body>
+</html>

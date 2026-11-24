@@ -11,7 +11,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY
 app.use(express.json());
 app.use('/api/v2/trades', require('./tradeIngest'));
 app.use(express.static("public"));
-
+require("./rulesRoutes")(app, supabase);
 app.get("/", (req, res) => {
     res.send("TradeNote API is working!");
 });
